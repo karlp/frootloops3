@@ -1,37 +1,22 @@
 from __future__ import division
 
-import logging
-import multiprocessing
-import time
 import threading
-
-
-class Bidir(multiprocessing.Process):
-    """
-    Sends data on a port, and collects data on the port
-    """
-    def __init__(self, port, conn):
-        multiprocessing.Process.__init__(self)
-        self.port = port
-        self.conn = conn
-
-    def run(self):
-        # this needs to be write to the serial port _and_ collect it's input, in a shared loop...
-        # so, needs to chunk the
-        pass
+import select
 
 def tsender(port, data):
     # FIXME - get the writer shit from frootloop2 maybe?
     print("starting tsender with port", port)
-    n = port.write(data)
-    print("wrote " , n, "vs lendat of ", len(data))
+    tx_len = len(data)
+    while tx_len > 0:
+        n = port.write(data)
+        tx_len -= n
+        data = data[n:]
+        #print("wrote ", n, "remainging: ", tx_len)
 
 class DualSender():
     def __init__(self, dut, ref):
-        # dut.timeout = 0
-        # dut.write_timeout = 0
-        # ref.timeout = 0
-        # ref.write_timeout = 0
+        dut.nonblocking()
+        ref.nonblocking()
         self.dut = dut
         self.ref = ref
 
@@ -40,8 +25,32 @@ class DualSender():
         t2 = threading.Thread(target=tsender, args=(self.ref, data,))
         t1.start()
         t2.start()
+        # grab the events from dut and ref and read them here.
+        # FIXME be more pythonic (zip or somethign to make this shit?)
+        inputs = [self.dut.fileno(), self.ref.fileno()]
+        print("watching inputs: ", inputs)
+        map = {}
+        map[self.dut.fileno()] = {"port": self.dut, "rxb": "", "waiting": True}
+        map[self.ref.fileno()] = {"port": self.ref, "rxb": "", "waiting": True}
+        while any(map[q]["waiting"] for q in map.keys()):
+            readable, writable, exceptional = select.select(inputs, [], inputs)
+            for fd in readable:
+                here = map[fd]
+                newd = here["port"].read(here["port"].in_waiting)
+                here["rxb"] += newd
+                print("received ", len(newd), " on fd ", fd)
+                if len(here["rxb"]) == len(data):
+                    here["waiting"] = False
+            for x in exceptional:
+                raise RuntimeError("exceptional case on fd!")
         t1.join()
         t2.join()
+
+        return {
+            "dut": map[self.dut.fileno()]["rxb"],
+            "ref": map[self.ref.fileno()]["rxb"]
+        }
+
 
 
 

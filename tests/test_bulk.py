@@ -4,7 +4,6 @@ import multiprocessing
 import serial
 import time
 
-from slop.watcher import WatcherProcess
 import slop.handlers
 
 REF = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_red_pins-if00-port0"
@@ -12,73 +11,25 @@ REF = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_r
 DUT = "/dev/serial/by-id/usb-libopencm3_usb_to_serial_cdcacm_stm32f103-generic-if00"
 BAUD = 115200
 
-class Threaded(unittest.TestCase):
-    def setUp(self):
-        """eventually, we'll parameterise this... maybe... someday..."""
-        self.ref = serial.Serial(REF, BAUD)
-        self.dut = serial.Serial(DUT, BAUD)
-        self.longMessage = True
-
-    def tearDown(self):
-        self.ref.close()
-        self.dut.close()
-
-    def testBulk_BIDIR(self):
-        # ok, magically make two threads, have one slowly write all the data to one side, the other write from the other
-        # and. I dunno, magically figure it out....
-        data_send_ref = b"sending from the REF"
-        data_send_dut = b"the dut merrily sends this"
-        refMan = Bidir(self.ref, data_send_ref) # Could put sending model in here...
-        dutMan = Bidir(self.dut, data_send_dut)
-
-        # start two processes
-        proc1 = refMan.time_limited(expected_rx_time_window)
-        proc2 = dutMan.time_limited(expected_rx_time_window)
-
-        proc1.join()
-        proc2.join()
-
-        # get data back out of refMan/dutMan to validate they got what they expected....
-
-        # need to go read allll of the python multiprocessing again I think.
-
-
-
-        lc, rc = multiprocessing.Pipe()
-        pp = WatcherProcess(self.dut, rc)
-        self.dut.flushInput()
-        pp.start()
-
-        data = b"The jetset silver robot hammered rapidly on the machinery.\n\r"*1000
-        ll = len(data)
-        lc.send_bytes(data)
-
-        start = time.time()
-        self.ref.write(data)
-        total = time.time() - start
-        print("Wrote %d bytes in %f seconds, ~bps = %f" % (ll, total, ll/total))
-        print("Rough words per minute: %f" % (len(data.split()) / total *60))
-
-        time.sleep(1) # Just needs to be long enough to let it run _at_all_  Can't I make the join() handle this properly?
-        pp.join()
-
-
 class Dual(unittest.TestCase):
     def setUp(self):
         """eventually, we'll parameterise this... maybe... someday..."""
-        self.ref = serial.Serial(REF, BAUD)
-        self.dut = serial.Serial(DUT, BAUD)
+        self.ref = serial.Serial(REF, BAUD, timeout=0, write_timeout=0)
+        self.dut = serial.Serial(DUT, BAUD, timeout=0, write_timeout=0)
         self.longMessage = True
-
 
     def tearDown(self):
         self.ref.close()
         self.dut.close()
 
-    def testSendNoCheck(self):
+    def testSendAndCheck(self):
         dual = slop.handlers.DualSender(self.dut, self.ref)
-        sample_data = b"sending messages in both directions is awesome"
-        dual.go(sample_data)
+        sample_data = b"sending messages in both directions is awesome" * 10
+        rval = dual.go(sample_data)
+        self.assertEquals(len(rval["dut"]), len(sample_data))
+        self.assertEquals(len(rval["ref"]), len(sample_data))
+        self.assertEquals(sample_data, rval["ref"])
+        self.assertEquals(sample_data, rval["dut"])
 
 
 class Bulk(unittest.TestCase):
