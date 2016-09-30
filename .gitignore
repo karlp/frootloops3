@@ -1,0 +1,4 @@
+# Ignore common virtualenv
+.env
+.idea
+*.pyc
