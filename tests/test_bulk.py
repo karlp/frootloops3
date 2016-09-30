@@ -5,6 +5,7 @@ import serial
 import time
 
 from slop.watcher import WatcherProcess
+import slop.handlers
 
 REF = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_red_pins-if00-port0"
 #DUT = "/dev/serial/by-id/usb-STMicroelectronics_STM32_STLink_0670FF484849785087085514-if02"
@@ -60,6 +61,24 @@ class Threaded(unittest.TestCase):
 
         time.sleep(1) # Just needs to be long enough to let it run _at_all_  Can't I make the join() handle this properly?
         pp.join()
+
+
+class Dual(unittest.TestCase):
+    def setUp(self):
+        """eventually, we'll parameterise this... maybe... someday..."""
+        self.ref = serial.Serial(REF, BAUD)
+        self.dut = serial.Serial(DUT, BAUD)
+        self.longMessage = True
+
+
+    def tearDown(self):
+        self.ref.close()
+        self.dut.close()
+
+    def testSendNoCheck(self):
+        dual = slop.handlers.DualSender(self.dut, self.ref)
+        sample_data = b"sending messages in both directions is awesome"
+        dual.go(sample_data)
 
 
 class Bulk(unittest.TestCase):
